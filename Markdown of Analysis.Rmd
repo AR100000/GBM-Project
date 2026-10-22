@@ -1,0 +1,415 @@
+---
+---
+---
+
+# GBM Analysis
+
+```{r Load_Files}
+
+folder <- "C:/Users/lucas/OneDrive/ALL PC STUFF/Desktop/GBM Data"
+
+files <- list.files(
+  path = folder,
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+
+data_list <- lapply(files, read.csv)
+
+
+names(data_list) <- tools::file_path_sans_ext(basename(files))
+
+# Display available stock tickers
+names(data_list)
+
+
+View(data_list[[1]])
+```
+
+Select Stock from Ticker, Start and End Date, extract Price data used with checks for validity of data
+
+```{r choose-initial-stock}
+
+# Choose initial stock
+Chosen_Stock <- "AAF"
+
+# Choose start and end dates
+start_date <- as.Date("2020-01-01")
+end_date   <- as.Date("2022-12-31")
+
+# Various tests for validity of date ranges, fields, formats and completeness
+if (is.na(start_date) || is.na(end_date) || start_date > end_date) {
+  stop("Invalid date range: check that start_date is before or equal to end_date.")
+}
+
+if (!Chosen_Stock %in% names(data_list)) {
+  stop(paste0(
+    "Stock '", Chosen_Stock,
+    "' was not found in data_list. Check the ticker name."
+  ))
+}
+
+# Load selected stock
+stock <- data_list[[Chosen_Stock]]
+
+if (!"close" %in% names(stock)) {
+  stop(paste0(
+    "Stock '", Chosen_Stock,
+    "' does not contain a 'close' column."
+  ))
+}
+
+if (!"date" %in% names(stock)) {
+  stop(paste0(
+    "Stock '", Chosen_Stock,
+    "' does not contain a 'date' column. Check the actual column name."
+  ))
+}
+
+# Convert dates and extract closing prices
+all_dates <- as.Date(stock$date, format = "%Y-%m-%d")
+all_prices <- stock$close
+
+if (all(is.na(all_dates))) {
+  stop("Date conversion failed. Check the date format in stock$date.")
+}
+
+# Select valid data within the requested date range
+selected <- !is.na(all_dates) &
+  all_dates >= start_date &
+  all_dates <= end_date &
+  is.finite(all_prices) &
+  all_prices > 0
+# All Prices > 0 is a constraint of the model 
+
+# Stop if no valid prices exist in the selected period
+if (!any(selected)) {
+  stop(paste0(
+    "No valid closing-price data for ", Chosen_Stock,
+    " between ", format(start_date, "%Y-%m-%d"),
+    " and ", format(end_date, "%Y-%m-%d"),
+    ". Check the date range and date format."
+  ))
+}
+
+# Keep only selected dates and prices
+dates <- all_dates[selected]
+prices <- all_prices[selected]
+
+# Sort observations chronologically
+ordering <- order(dates)
+dates <- dates[ordering]
+prices <- prices[ordering]
+
+# Check sufficient data for returns and simulation
+if (length(prices) < 2) {
+  stop("Fewer than two valid prices are available. At least two are required.")
+}
+
+# Report successful selection
+cat("Stock:", Chosen_Stock, "\n")
+cat("Start date available:", format(min(dates), "%Y-%m-%d"), "\n")
+cat("End date available:", format(max(dates), "%Y-%m-%d"), "\n")
+cat("Number of prices:", length(prices), "\n")
+
+```
+
+Daily Log Returns over a yearly time period
+
+```{r time-period}
+log_returns <- diff(log(prices))
+
+n <- length(log_returns)
+trading_days <- 252
+# 252 Business Days py
+T <- n / trading_days
+
+time <- seq(0, T, length.out = n + 1)
+
+cat("Number of daily returns:", n, "\n")
+cat("Approximate time period (years):", round(T, 2), "\n")
+```
+
+GBM Model Equation:
+
+$$
+S_t = S_0 \exp\left(\left(\mu - \frac{\sigma^2}{2}\right)t + \sigma W_t\right)
+$$
+
+Estimate Annual Drift and Velocity
+
+```{r estimate-parameters}
+sigma_hat <- sd(log_returns) * sqrt(trading_days)
+
+mu_hat <- mean(log_returns) * trading_days +
+  0.5 * sigma_hat^2
+
+cat("Annualised drift:", round(mu_hat, 4), "\n")
+cat("Annualised volatility:", round(sigma_hat, 4), "\n")
+```
+
+Simulate GBM Path
+
+```{r simulate-gbm}
+#generated fixed path, so can be compared between stocks
+set.seed(123)
+
+#generate n random numbers from normal distribution with parameters below
+dW <- rnorm(n, mean = 0, sd = sqrt(1 / trading_days))
+#Cumulative Sum to construct Brownian Path
+W <- c(0, cumsum(dW))
+
+#Applies GBM to every time point
+simulated_prices <- prices[1] *
+  exp((mu_hat - 0.5 * sigma_hat^2) * time +
+        sigma_hat * W)
+```
+
+Historical Prices against simulated prices
+
+```{r compare prices}
+plot(dates, prices, type = "l",
+     xlab = "Date", ylab = "Share price",
+     main = paste(Chosen_Stock, ": Historical Prices vs GBM"))
+
+lines(dates, simulated_prices, col = "red", lty = 2)
+```
+
+```{r compare-prices 2}
+
+# Plot historical share prices
+plot(
+  dates, prices,
+  type = "l",
+  xlab = "Date",
+  ylab = "Share price",
+  main = paste(Chosen_Stock, ": Historical Prices vs GBM"),
+  xaxt = "n"
+)
+
+# Add GBM prices
+lines(dates, simulated_prices, col = "red", lty = 2)
+
+# Add date labels
+date_ticks <- pretty(dates, n = 6)
+axis.Date(1, at = date_ticks, format = "%Y-%m")
+
+# Add key
+legend(
+  "topleft",
+  legend = c("Historical prices", "GBM simulation"),
+  col = c("black", "red"),
+  lty = c(1, 2)
+)
+
+```
+
+Summary Statistics of log returns volatility
+
+```{r log return stats}
+summary(log_returns)
+
+cat("Daily volatility:", sd(log_returns), "\n")
+cat("Annualised volatility:", sigma_hat, "\n")
+```
+
+Distribution of Log Returns
+
+```{r return-distribution}
+hist(
+  log_returns,
+  breaks = 50,
+  main = paste(Chosen_Stock, ": Distribution of Daily Log Returns"),
+  xlab = "Daily log return"
+)
+```
+
+Log Returns Normally Distributed?
+
+Closer alligned to red line closer fit to normal distribution
+
+```{r normality-check}
+qqnorm(
+  log_returns,
+  main = paste(Chosen_Stock, ": Normal Q-Q Plot"))
+
+
+qqline(log_returns, col = "red")
+```
+
+Check for Volatility Clustering
+
+If consistently low or high then clustering
+
+```{r volatility-clustering}
+acf(
+  log_returns^2,
+  main = paste(Chosen_Stock, ": Autocorrelation of Squared Returns"))
+
+```
+
+Autoregressive Conditional Hetero Skedasticity test used to determine if a time series exhibits volatility cluttering. Smaller probability is high probability of an ARCH effect
+
+```{r arch-test}
+library(FinTS)
+ArchTest(log_returns, lags = 10)
+
+```
+
+## Different Time Periods
+
+```{r comparison-settings}
+# Select stock
+prices <- data_list[[Chosen_Stock]]$close
+prices <- prices[is.finite(prices) & prices > 0]
+
+# Historical estimation windows, measured in trading days
+windows <- c(
+  "1 month" = 21,
+  "3 months" = 63,
+  "6 months" = 126,
+  "1 year" = 252,
+  "2 years" = 504
+)
+
+# Forecast horizon: approximately one month
+forecast_days <- 21
+trading_days <- 252
+```
+
+For Different Periods
+
+```{r}
+compare_window <- function(prices, window, forecast_days = 21,
+                           trading_days = 252) {
+  
+  # Error Handling
+  if (length(prices) < window + forecast_days) {
+    return(data.frame(
+      Mean_APE = NA_real_,
+      Median_APE = NA_real_,
+      Mean_Annual_Volatility = NA_real_,
+      Forecasts = 0
+    ))
+  }
+  
+  errors <- numeric(0)
+  volatility_estimates <- numeric(0)
+  
+  # Rolling forecasts
+  starts <- seq(
+    from = window + 1,
+    to = length(prices) - forecast_days + 1,
+    by = forecast_days
+  )
+  
+  for (i in starts) {
+    
+    estimation_prices <- prices[(i - window):(i - 1)]
+    returns <- diff(log(estimation_prices))
+    
+    sigma_hat <- sd(returns) * sqrt(trading_days)
+    mu_hat <- mean(returns) * trading_days +
+      0.5 * sigma_hat^2
+    
+    S0 <- prices[i - 1]
+    
+    # Expected price after the forecast period
+    predicted_price <- S0 * exp(
+      mu_hat * forecast_days / trading_days
+    )
+    
+    actual_price <- prices[i + forecast_days - 1]
+    
+    error <- abs(predicted_price - actual_price) /
+      actual_price * 100
+    
+    errors <- c(errors, error)
+    volatility_estimates <- c(volatility_estimates, sigma_hat)
+  }
+  
+  data.frame(
+    Mean_APE = mean(errors),
+    Median_APE = median(errors),
+    Mean_Annual_Volatility = mean(volatility_estimates),
+    Forecasts = length(errors)
+  )
+}
+
+# Compare each estimation window
+comparison_list <- lapply(windows, function(w) {
+  compare_window(prices, w, forecast_days, trading_days)
+})
+
+comparison <- do.call(rbind, comparison_list)
+comparison$Period <- names(windows)
+rownames(comparison) <- NULL
+
+comparison <- comparison[, c(
+  "Period", "Mean_APE", "Median_APE",
+  "Mean_Annual_Volatility", "Forecasts"
+)]
+
+knitr::kable(comparison, digits = 3)
+```
+
+### Different Sectors
+
+```{r Group by Different Sectors}
+# Group By Industry
+industry_tickers <- list(
+
+  "Energy and Utilities" = c(
+    "BP", "CNA", "HBR", "ITH", "NG", "SHEL", "SSE", "SVT", "UU"
+  ),
+
+  "Mining and Materials" = c(
+    "AAL", "ANTO", "CRDA", "EDV", "FRES", "MTLN", "RIO", "SMIN", "WEIR"
+  ),
+
+  "Financials" = c(
+    "ABDN", "ADM", "AV", "BARC", "BGEO", "HSBA", "ICG", "III",
+    "INVP", "LGEN", "LLOY", "MNG", "NWG", "PRU", "SDLF",
+    "STAN", "STJ"
+  ),
+
+  "Industrials and Defence" = c(
+    "BA", "BAB", "BBY", "BNZL", "DPLM", "HLMA", "IMI",
+    "ITRK", "MRO", "ROR", "RR", "RSW", "SPX"
+  ),
+
+  "Consumer Staples" = c(
+    "ABF", "BATS", "CCEP", "DGE", "IMB", "RKT",
+    "SBRY", "TSCO", "ULVR"
+  ),
+
+  "Consumer Discretionary" = c(
+    "BRBY", "CPG", "EZJ", "FRAS", "GAW", "IHG", "JD",
+    "KGF", "MKS", "NXT", "WTB"
+  ),
+
+  "Healthcare" = c(
+    "AZN", "CTEC", "GSK", "HLN", "SN"
+  ),
+
+  "Technology, Media and Telecoms" = c(
+    "AAF", "AUTO", "BT.A", "CCC", "EXPN", "INF", "LSEG",
+    "PSON", "REL", "SCT", "SGE", "VOD", "ZEG"
+  ),
+
+  "Property and Housebuilding" = c(
+    "BBOX", "BLND", "BTRW", "HWDN", "LAND", "LMP",
+    "PSN", "RMV", "SGRO"
+  ),
+
+  "Business Services" = c(
+    "RTO"
+  ),
+
+  "Investment Trusts" = c(
+    "ALW", "FCIT", "PCT", "SMT"
+  )
+)
+
+```
