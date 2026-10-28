@@ -1,10 +1,20 @@
 ---
 editor_options:
   chunk_output_type: inline
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 # GBM Analysis
+
+# Introduction
+
+This project analyses historical stock price data for UK-listed companies to assess the validity of Geometric Brownian Motion to model the prices. The analysis begins by importing and cleaning the dataset, removing stocks that do not meet the required data quality criteria and selecting an appropriate historical time period. Daily logarithmic returns are then calculated for each stock, and key statistical parameters are estimated from the resulting data.
+
+The analysis initially focuses on an individual stock, examining its historical price movements, return distribution and volatility statistics. Simulated price paths are subsequently generated and compared with observed prices, with forecast accuracy assessed across different historical estimation windows. Statistical diagnostic tests are also conducted to investigate the distribution of returns, their dependence over time and potential clustering in volatility.
+
+The analysis is then extended across multiple stocks and industries. Simulation performance is compared using percentage errors, root mean squared errors and prediction interval coverage. Statistics per industry are assessed using skewness and excess kurtosis. The results are summarised in tables and graphical comparisons to identify differences between industries and consistent patterns across the entire data set.
 
 ### Setup
 
@@ -24,7 +34,7 @@ General possible reasons to exclude a ticker from the list are: (need to review 
 
 7.  s.d of log returns is 0 or infinite
 
-8.  Chosen to run 100 paths per stock (can be changed)
+8.  Chosen to run 500 paths per stock (can be changed)
 
 ### Sources
 
@@ -46,11 +56,8 @@ data_list <- lapply(files, read.csv)
 
 names(data_list) <- tools::file_path_sans_ext(basename(files))
 
-# Display available stock tickers
+# Display all available stock tickers
 names(data_list)
-
-
-View(data_list[[1]])
 ```
 
 ## Setup for Individual Stocks
@@ -64,7 +71,7 @@ Select Stock from Ticker, Start and End Date, extract Price data from source and
 3.  check close column exists in data
 4.  check date field can be converted to a date
 5.  filter data for dates between start and end
-6.  sort by date asc
+6.  sort by date ascending
 
 ```{r choose-initial-stock}
 
@@ -235,7 +242,7 @@ cat("Annualised drift:", round(mu_hat, 4), "\n")
 cat("Annualised volatility:", round(sigma_hat, 4), "\n")
 ```
 
-## Simulate 100 GBM Paths
+## Simulate 500 GBM Paths
 
 maybe an idea to look at simulating over an increasing number of paths but run into computational issues
 
@@ -243,7 +250,7 @@ maybe an idea to look at simulating over an increasing number of paths but run i
 # Simulate 100 independent GBM paths
 set.seed(123)
 
-n_simulations <- 100
+n_simulations <- 500
 
 # Number of daily intervals
 n <- length(prices) - 1
@@ -337,7 +344,7 @@ legend(
 
 Each blue line is a random walk using the estimated parameters and red line is the actual price
 
-## Summary Statistics of log returns 
+## Summary Statistics of log returns
 
 ```{r log return stats}
 summary(log_returns)
@@ -367,7 +374,7 @@ hist(
   main = paste(Chosen_Stock, ": Distribution of Daily Log Returns"),
   xlab = "Daily log return",
   ylab = "Density",
-  col = "lightblue",
+  col = "blue",
   border = "white"
 )
 
@@ -414,12 +421,6 @@ acf(
 
 ```
 
-Autoregressive Conditional Hetero Skedasticity test used to determine if a time series exhibits volatility cluttering. Smaller probability is high probability of an ARCH effect. Essentially hypothesis test of autocorrelation graph above.
-
-Test checks if the current squared returns are correlated to the 10 previous days (from lags = 10).
-
-used in cont source
-
 #### ARCH Test
 
 ```{r arch-test}
@@ -427,6 +428,12 @@ library(FinTS)
 ArchTest(log_returns, lags = 10)
 
 ```
+
+Autoregressive Conditional Hetero Skedasticity test used to determine if a time series exhibits volatility cluttering. Smaller probability is high probability of an ARCH effect. Essentially hypothesis test of autocorrelation graph above.
+
+Test checks if the current squared returns are correlated to the 10 previous days (from lags = 10).
+
+used in cont source
 
 ## Different Time Periods (unfinished)
 
@@ -527,7 +534,9 @@ knitr::kable(comparison, digits = 3)
 
 ## Comparison of Different Sectors
 
-The different sectors have been defined by a classification based on each companies main main activities
+The different sectors have been defined by a classification based on each companies main activities
+
+in the future could use the ftse classification but this could be too granular to properly sort the companies into big enough categories
 
 ```{r Group by Different Sectors}
 industry_tickers <- list(
@@ -587,7 +596,7 @@ industry_tickers <- list(
 )
 ```
 
-calculate statistics for every stock
+calculate parameters for every stock in the same way as the singular stock
 
 ```{r industrystockanalysis}
 # stock-level gbm statistics
@@ -923,6 +932,12 @@ knitr::kable(
 )
 ```
 
+**Mean and Median Absolute Skewness:** These measure the average and median absolute skewness of stock returns within each industry. Lower values indicate that the return distributions are more symmetric and closer to a normal distribution.
+
+**Mean and Median Absolute Excess Kurtosis:** These measure the average and median absolute excess kurtosis of stock returns within each industry. Under GBM, log returns have zero excess kurtosis. Lower values indicate that the return distributions have tail behaviour closer to a normal distribution.
+
+**Average Rank:** This combines the skewness and kurtosis ranks to provide an overall comparison of industries based on these two aspects of GBM's return-distribution assumptions. A lower average rank indicates closer agreement with the normality assumption across both measures, although it does not establish that GBM is a good overall model.
+
 ```{r gbm-industry-simulation, fig.width=14, fig.height=7, out.width="100%"}
 
 #Actual GBM Simulation per Industry
@@ -1124,7 +1139,7 @@ boxplot(
   Median_Path_MAPE ~ Industry,
   data = gbm_fit_stock_results,
   las = 2,
-  col = "lightblue",
+  col = "blue",
   ylab = "Median simulated path MAPE (%)",
   main = "GBM Price-Path Error by Industry",
   outline = TRUE
@@ -1139,7 +1154,7 @@ barplot(
   coverage_data$Mean_95_Percent_Coverage,
   names.arg = coverage_data$Industry,
   las = 2,
-  col = "darkseagreen3",
+  col = "darkgreen",
   ylim = c(0, 100),
   ylab = "Mean percentage of prices within interval",
   main = "Actual Prices Within GBM 95% Simulation Interval"
@@ -1153,11 +1168,19 @@ par(mfrow = c(1, 1))
 
 ```
 
-## Further Directions 
+**Median Path MAPE:** This measures the median percentage error between the simulated GBM price paths and the actual historical stock prices. Lower values indicate that the simulated paths tend to remain closer to the observed prices, suggesting a better fit to the historical data.
+
+**Log Price RMSE:** This measures the root mean squared error between simulated and actual log stock prices. Lower values indicate smaller discrepancies between the simulated and observed prices, while higher values suggest that GBM struggles to represent the stock's historical price movements accurately.
+
+**95% Coverage:** This measures the percentage of actual stock prices that fall within the 95% simulation interval. Coverage close to 95% is consistent with the nominal interval coverage, whereas lower coverage may indicate that the model underestimates uncertainty. Higher coverage is not necessarily better, as wider intervals can capture more observations without providing more precise predictions.
+
+# Further Directions
 
 1.  How to deal with dividends
-2.  Analysis:
+2.  Use both the close and open columns (as well as the high and low)
+3.  Analysis:
     1.  Vary number of walks?
     2.  Vary time period
     3.  Change parameters based on rolling time periods rather than having one consistent parameter over the entire time
-3.  Jarque - Bera test for if log returns are normally distribution
+4.  Jarque - Bera test for if log returns are normally distribution
+5.  Maybe change the industries based on FTSE classification / a more concrete specification
