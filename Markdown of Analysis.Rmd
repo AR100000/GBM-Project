@@ -1,13 +1,39 @@
 ---
----
+editor_options:
+  chunk_output_type: inline
+output: pdf_document
 ---
 
 # GBM Analysis
 
+### Setup
+
+General possible reasons to exclude a ticker from the list are: (need to review these, just provisional at the moment)
+
+1.  Assigned to a list
+
+2.  Missing Columns
+
+3.  Invalid Dates / Prices
+
+4.  Outside date range selected
+
+5.  \<30 usable prices
+
+6.  \<20 finite log returns
+
+7.  s.d of log returns is 0 or infinite
+
+8.  Chosen to run 100 paths per stock (can be changed)
+
+### Sources
+
+1.  Cont 2001: Empirical Properties of asset returns: stylized facts and statistical issues
+2.  Fama, E. F. (1965). The Behaviour of Stock-Market Prices
+
 ```{r Load_Files}
 
 folder <- "C:/Users/lucas/OneDrive/ALL PC STUFF/Desktop/GBM Data"
-
 files <- list.files(
   path = folder,
   pattern = "\\.csv$",
@@ -27,12 +53,23 @@ names(data_list)
 View(data_list[[1]])
 ```
 
-Select Stock from Ticker, Start and End Date, extract Price data used with checks for validity of data
+## Setup for Individual Stocks
+
+Select Stock from Ticker, Start and End Date, extract Price data from source and perform checks for validity of data
+
+#### Checks
+
+1.  identify if start and end dates are missing and start date \> end date
+2.  check stock is in data list
+3.  check close column exists in data
+4.  check date field can be converted to a date
+5.  filter data for dates between start and end
+6.  sort by date asc
 
 ```{r choose-initial-stock}
 
 # Choose initial stock
-Chosen_Stock <- "AAF"
+Chosen_Stock <- "BP"
 
 # Choose start and end dates
 start_date <- as.Date("2020-01-01")
@@ -56,7 +93,7 @@ stock <- data_list[[Chosen_Stock]]
 if (!"close" %in% names(stock)) {
   stop(paste0(
     "Stock '", Chosen_Stock,
-    "' does not contain a 'close' column."
+    "' does not contain a close column."
   ))
 }
 
@@ -97,7 +134,7 @@ if (!any(selected)) {
 dates <- all_dates[selected]
 prices <- all_prices[selected]
 
-# Sort observations chronologically
+# Sort observations by date
 ordering <- order(dates)
 dates <- dates[ordering]
 prices <- prices[ordering]
@@ -109,17 +146,26 @@ if (length(prices) < 2) {
 
 # Report successful selection
 cat("Stock:", Chosen_Stock, "\n")
-cat("Start date available:", format(min(dates), "%Y-%m-%d"), "\n")
-cat("End date available:", format(max(dates), "%Y-%m-%d"), "\n")
+cat("Start date Chosen:", format(min(dates), "%Y-%m-%d"), "\n")
+cat("End date Chosen:", format(max(dates), "%Y-%m-%d"), "\n")
 cat("Number of prices:", length(prices), "\n")
 
 ```
 
-Daily Log Returns over a yearly time period
+#### Log Returns
+
+$$
+r_{n+1} = \log(S_{n+1}) - \log(S_n)
+$$
+
+Daily Log Returns calculated across entire time period. Approximate number of years calculated from number of prices / 252 (business days py)
 
 ```{r time-period}
+
+#difference between the log of the prices on a daily basis
 log_returns <- diff(log(prices))
 
+#approximate time period in years is calculated based on the number of prices / 252 trading days py
 n <- length(log_returns)
 trading_days <- 252
 # 252 Business Days py
@@ -131,13 +177,53 @@ cat("Number of daily returns:", n, "\n")
 cat("Approximate time period (years):", round(T, 2), "\n")
 ```
 
-GBM Model Equation:
+#### Geometric Brownian Motion Equation
 
 $$
 S_t = S_0 \exp\left(\left(\mu - \frac{\sigma^2}{2}\right)t + \sigma W_t\right)
 $$
 
 Estimate Annual Drift and Velocity
+
+$$
+\hat{\sigma}=s_r\sqrt{252}
+$$
+
+where the daily log-return standard deviation is
+
+$$
+s_r=\sqrt{\frac{1}{n-1}\sum_{t=1}^{n}(r_t-\bar r)^2}
+$$
+
+- $S_t$ is the stock price at time $t$.
+- $r_t$ is the daily log return.
+- $\bar r=\frac{1}{n}\sum_{t=1}^{n}r_t$ is the mean daily log return.
+- $n$ is the number of daily log returns.
+- $252$ is the number of trading days per year.
+
+#### Annualised Drift
+
+$$
+\hat{\mu}=252\bar r+\frac{1}{2}\hat{\sigma}^{\,2}
+$$
+
+Substituting the volatility estimate gives
+
+$$
+\hat{\mu}=252\bar r+\frac{1}{2}(252s_r^2)
+$$
+
+Equivalently,
+
+$$
+\hat{\mu}=252\left(\bar r+\frac{1}{2}s_r^2\right)
+$$
+
+where $\hat{\mu}$ is the estimated annualised GBM drift parameter.
+
+The additional term $\frac12\hat{\sigma}^2$ arises from the GBM model:
+
+It adjusts the annualised mean log return to estimate the drift parameter $\mu$.
 
 ```{r estimate-parameters}
 sigma_hat <- sd(log_returns) * sqrt(trading_days)
@@ -149,63 +235,109 @@ cat("Annualised drift:", round(mu_hat, 4), "\n")
 cat("Annualised volatility:", round(sigma_hat, 4), "\n")
 ```
 
-Simulate GBM Path
+## Simulate 100 GBM Paths
 
-```{r simulate-gbm}
-#generated fixed path, so can be compared between stocks
+maybe an idea to look at simulating over an increasing number of paths but run into computational issues
+
+```{r simulate-100-gbm}
+# Simulate 100 independent GBM paths
 set.seed(123)
 
-#generate n random numbers from normal distribution with parameters below
-dW <- rnorm(n, mean = 0, sd = sqrt(1 / trading_days))
-#Cumulative Sum to construct Brownian Path
-W <- c(0, cumsum(dW))
+n_simulations <- 100
 
-#Applies GBM to every time point
-simulated_prices <- prices[1] *
-  exp((mu_hat - 0.5 * sigma_hat^2) * time +
-        sigma_hat * W)
+# Number of daily intervals
+n <- length(prices) - 1
+
+# Time in years
+time <- (0:n) / trading_days
+
+# Starting share price
+S0 <- prices[1]
+
+# Generate independent daily log-price increments
+daily_increments <- matrix(
+  rnorm(
+    n * n_simulations,
+    mean = (mu_hat - 0.5 * sigma_hat^2) / trading_days,
+    sd = sigma_hat / sqrt(trading_days)
+  ),
+  nrow = n,
+  ncol = n_simulations
+)
+
+# Construct all 100 simulated price paths
+simulated_prices <- rbind(
+  rep(S0, n_simulations),
+  S0 * exp(apply(daily_increments, 2, cumsum))
+)
+
+# Check dimensions
+dim(simulated_prices)
+
 ```
 
-Historical Prices against simulated prices
+### Historical Prices against simulated prices
 
-```{r compare prices}
+```{r compare-historical-simulated-donotuse, eval=FALSE, include=FALSE}
+#Compare Prices
+
 plot(dates, prices, type = "l",
      xlab = "Date", ylab = "Share price",
      main = paste(Chosen_Stock, ": Historical Prices vs GBM"))
 
 lines(dates, simulated_prices, col = "red", lty = 2)
+
 ```
 
-```{r compare-prices 2}
+```{r plot-simulatedtoactual}
+# Plot 100 simulated paths against actual historical prices
 
-# Plot historical share prices
-plot(
-  dates, prices,
+matplot(
+  dates,
+  simulated_prices,
   type = "l",
+  lty = 1,
+  col = adjustcolor("blue", alpha.f = 0.35),
   xlab = "Date",
   ylab = "Share price",
-  main = paste(Chosen_Stock, ": Historical Prices vs GBM"),
+  main = paste(
+    Chosen_Stock,
+    ": Historical Prices vs 100 GBM Simulations"
+  ),
   xaxt = "n"
 )
-
-# Add GBM prices
-lines(dates, simulated_prices, col = "red", lty = 2)
 
 # Add date labels
 date_ticks <- pretty(dates, n = 6)
 axis.Date(1, at = date_ticks, format = "%Y-%m")
 
-# Add key
+# Add historical share price
+lines(
+  dates,
+  prices,
+  col = "red",
+  lwd = 2
+)
+
+# Add legend
 legend(
   "topleft",
-  legend = c("Historical prices", "GBM simulation"),
-  col = c("black", "red"),
-  lty = c(1, 2)
+  legend = c(
+    "100 simulated GBM paths",
+    "Actual historical price"
+  ),
+  col = c("blue", "red"),
+  lty = 1,
+  lwd = c(1, 2),
+  bty = "n",
+  cex = 0.85
 )
 
 ```
 
-Summary Statistics of log returns volatility
+Each blue line is a random walk using the estimated parameters and red line is the actual price
+
+## Summary Statistics of log returns 
 
 ```{r log return stats}
 summary(log_returns)
@@ -214,33 +346,66 @@ cat("Daily volatility:", sd(log_returns), "\n")
 cat("Annualised volatility:", sigma_hat, "\n")
 ```
 
-Distribution of Log Returns
+### Are log(returns) normally distributed?
 
-```{r return-distribution}
+log return could be adapted do a Jarque - Bera Test
+
+used in cont and Fama Sources
+
+Closer aligned to red line closer fit to normal distribution
+
+```{r return-distribution-normality, fig.width=12, fig.height=5}
+old_par <- par(no.readonly = TRUE)
+
+par(mfrow = c(1, 2))
+
+# Distribution of actual daily log returns
 hist(
   log_returns,
   breaks = 50,
+  probability = TRUE,
   main = paste(Chosen_Stock, ": Distribution of Daily Log Returns"),
-  xlab = "Daily log return"
+  xlab = "Daily log return",
+  ylab = "Density",
+  col = "lightblue",
+  border = "white"
 )
-```
 
-Log Returns Normally Distributed?
+# Overlay normal distribution
+x <- seq(
+  min(log_returns, na.rm = TRUE),
+  max(log_returns, na.rm = TRUE),
+  length.out = 200
+)
 
-Closer alligned to red line closer fit to normal distribution
+lines(
+  x,
+  dnorm(x, mean = mean(log_returns, na.rm = TRUE),
+        sd = sd(log_returns, na.rm = TRUE)),
+  col = "red",
+  lwd = 2
+)
 
-```{r normality-check}
+# Normal Q-Q plot
 qqnorm(
   log_returns,
-  main = paste(Chosen_Stock, ": Normal Q-Q Plot"))
+  main = paste(Chosen_Stock, ": Normal Q-Q Plot"),
+  pch = 19,
+  cex = 0.5
+)
 
+qqline(log_returns, col = "red", lwd = 2)
 
-qqline(log_returns, col = "red")
+par(old_par)
 ```
 
-Check for Volatility Clustering
+### Check for Volatility Clustering
 
-If consistently low or high then clustering
+#### Autocorrelation of Squared Returns
+
+Checks if there are periods of consistent high returns or low returns - essentially checking if there is a correlation between the absolute value of the returns across different time periods. Spikes in the ACF that extend past the confidence band (dashed blue line) show that there is some correlation.
+
+This exact graph is not used in any sources so can be removed.
 
 ```{r volatility-clustering}
 acf(
@@ -249,7 +414,13 @@ acf(
 
 ```
 
-Autoregressive Conditional Hetero Skedasticity test used to determine if a time series exhibits volatility cluttering. Smaller probability is high probability of an ARCH effect
+Autoregressive Conditional Hetero Skedasticity test used to determine if a time series exhibits volatility cluttering. Smaller probability is high probability of an ARCH effect. Essentially hypothesis test of autocorrelation graph above.
+
+Test checks if the current squared returns are correlated to the 10 previous days (from lags = 10).
+
+used in cont source
+
+#### ARCH Test
 
 ```{r arch-test}
 library(FinTS)
@@ -257,7 +428,7 @@ ArchTest(log_returns, lags = 10)
 
 ```
 
-## Different Time Periods
+## Different Time Periods (unfinished)
 
 ```{r comparison-settings}
 # Select stock
@@ -354,62 +525,639 @@ comparison <- comparison[, c(
 knitr::kable(comparison, digits = 3)
 ```
 
-### Different Sectors
+## Comparison of Different Sectors
+
+The different sectors have been defined by a classification based on each companies main main activities
 
 ```{r Group by Different Sectors}
-# Group By Industry
 industry_tickers <- list(
-
+  
   "Energy and Utilities" = c(
     "BP", "CNA", "HBR", "ITH", "NG", "SHEL", "SSE", "SVT", "UU"
   ),
-
-  "Mining and Materials" = c(
-    "AAL", "ANTO", "CRDA", "EDV", "FRES", "MTLN", "RIO", "SMIN", "WEIR"
+  
+  "Mining and Metals" = c(
+    "AAL", "ANTO", "EDV", "FRES", "MLTN", "RIO"
   ),
-
+  
   "Financials" = c(
     "ABDN", "ADM", "AV", "BARC", "BGEO", "HSBA", "ICG", "III",
     "INVP", "LGEN", "LLOY", "MNG", "NWG", "PRU", "SDLF",
-    "STAN", "STJ"
+    "STAN", "STJ", "LSEG", "EXPN"
   ),
-
-  "Industrials and Defence" = c(
-    "BA", "BAB", "BBY", "BNZL", "DPLM", "HLMA", "IMI",
-    "ITRK", "MRO", "ROR", "RR", "RSW", "SPX"
+  
+  "Industrials and Engineering" = c(
+    "BA", "BAB", "BBY", "BNZL", "CRDA", "DPLM", "HLMA",
+    "IMI", "ITRK", "MRO", "ROR", "RSW", "SMIN", "SPX", "WEIR"
   ),
-
+  
   "Consumer Staples" = c(
     "ABF", "BATS", "CCEP", "DGE", "IMB", "RKT",
     "SBRY", "TSCO", "ULVR"
   ),
-
-  "Consumer Discretionary" = c(
-    "BRBY", "CPG", "EZJ", "FRAS", "GAW", "IHG", "JD",
-    "KGF", "MKS", "NXT", "WTB"
+  
+  "Consumer Discretionary and Retail" = c(
+    "BRBY", "FRAS", "GAW", "JD", "KGF", "MKS", "NXT"
   ),
-
+  
+  "Travel, Leisure and Hospitality" = c(
+    "CPG", "EZJ", "IHG", "WTB"
+  ),
+  
   "Healthcare" = c(
     "AZN", "CTEC", "GSK", "HLN", "SN"
   ),
-
+  
   "Technology, Media and Telecoms" = c(
-    "AAF", "AUTO", "BT.A", "CCC", "EXPN", "INF", "LSEG",
-    "PSON", "REL", "SCT", "SGE", "VOD", "ZEG"
+    "AAF", "AUTO", "BT.A", "CCC", "INF", "PSON",
+    "REL", "SCT", "SGE", "VOD", "ZEG"
   ),
-
+  
   "Property and Housebuilding" = c(
-    "BBOX", "BLND", "BTRW", "HWDN", "LAND", "LMP",
-    "PSN", "RMV", "SGRO"
+    "BBOX", "BLND", "BTRW", "LAND", "LMP", "PSN", "SGRO"
   ),
-
-  "Business Services" = c(
-    "RTO"
+  
+  "Business Services and Building Products" = c(
+    "HWDN", "RTO", "RMV"
   ),
-
+  
   "Investment Trusts" = c(
     "ALW", "FCIT", "PCT", "SMT"
   )
 )
+```
+
+calculate statistics for every stock
+
+```{r industrystockanalysis}
+# stock-level gbm statistics
+
+industry_stock_results <- list()
+
+for (industry in names(industry_tickers)) {
+  
+  tickers <- intersect(
+    industry_tickers[[industry]],
+    names(data_list)
+  )
+  
+  for (ticker in tickers) {
+    
+    stock <- data_list[[ticker]]
+    
+    date_col <- which(tolower(names(stock)) == "date")
+    close_col <- which(tolower(names(stock)) == "close")
+    
+    if (length(date_col) != 1 || length(close_col) != 1) {
+      next
+    }
+    
+    dates <- as.Date(stock[[date_col]])
+    prices <- suppressWarnings(
+      as.numeric(as.character(stock[[close_col]]))
+    )
+    
+    # Use Existing Parameters
+    keep <- !is.na(dates) &
+      dates >= start_date &
+      dates <= end_date &
+      is.finite(prices) &
+      prices > 0
+    
+    dates <- dates[keep]
+    prices <- prices[keep]
+    
+    # Sort prices chronologically
+    ordering <- order(dates)
+    prices <- prices[ordering]
+    
+    if (length(prices) < 30) {
+      next
+    }
+    
+    # Calculate daily log returns
+    log_returns <- diff(log(prices))
+    log_returns <- log_returns[is.finite(log_returns)]
+    
+    if (length(log_returns) < 20 ||
+        !is.finite(sd(log_returns)) ||
+        sd(log_returns) == 0) {
+      next
+    }
+    
+    # Estimate GBM parameters using existing trading_days
+    sigma_hat <- sd(log_returns) * sqrt(trading_days)
+    
+    mu_hat <- mean(log_returns) * trading_days +
+      0.5 * sigma_hat^2
+    
+    # Return distribution statistics
+    standardised_returns <- (
+      log_returns - mean(log_returns)
+    ) / sd(log_returns)
+    
+    industry_stock_results[[length(industry_stock_results) + 1]] <-
+      data.frame(
+        Industry = industry,
+        Ticker = ticker,
+        Observations = length(log_returns),
+        Mean_Daily_Log_Return = mean(log_returns),
+        Annualised_Volatility = sigma_hat,
+        Annualised_GBM_Drift = mu_hat,
+        Skewness = mean(standardised_returns^3),
+        Excess_Kurtosis = mean(standardised_returns^4) - 3
+      )
+  }
+}
+
+if (length(industry_stock_results) == 0) {
+  stop("No stocks were analysed. Check the industry groups, data_list and date parameters.")
+}
+
+industry_stock_results <- do.call(
+  rbind,
+  industry_stock_results
+)
+
+rownames(industry_stock_results) <- NULL
+
+#print (industry_stock_results)
 
 ```
+
+```{r diagnoseexcludedstocks}
+assigned_tickers <- unique(unlist(industry_tickers, use.names = FALSE))
+
+diagnostic <- lapply(names(data_list), function(ticker) {
+
+  # Check industry assignment
+  if (!ticker %in% assigned_tickers) {
+    return(data.frame(
+      Ticker = ticker,
+      Reason = "Not assigned to an industry"
+    ))
+  }
+
+  stock <- data_list[[ticker]]
+
+  date_col <- which(tolower(names(stock)) == "date")
+  close_col <- which(tolower(names(stock)) == "close")
+
+  if (length(date_col) != 1 || length(close_col) != 1) {
+    return(data.frame(
+      Ticker = ticker,
+      Reason = "Missing or invalid date/close column"
+    ))
+  }
+
+  dates <- tryCatch(
+    as.Date(stock[[date_col]]),
+    error = function(e) rep(as.Date(NA), nrow(stock))
+  )
+
+  prices <- suppressWarnings(
+    as.numeric(as.character(stock[[close_col]]))
+  )
+
+  keep <- !is.na(dates) &
+    dates >= start_date &
+    dates <= end_date &
+    is.finite(prices) &
+    prices > 0
+
+  dates <- dates[keep]
+  prices <- prices[keep]
+
+  prices <- prices[order(dates)]
+
+  if (length(prices) < 30) {
+    return(data.frame(
+      Ticker = ticker,
+      Reason = "Fewer than 30 valid prices"
+    ))
+  }
+
+  log_returns <- diff(log(prices))
+  log_returns <- log_returns[is.finite(log_returns)]
+
+  if (length(log_returns) < 20) {
+    return(data.frame(
+      Ticker = ticker,
+      Reason = "Fewer than 20 valid returns"
+    ))
+  }
+
+  if (!is.finite(sd(log_returns)) || sd(log_returns) == 0) {
+    return(data.frame(
+      Ticker = ticker,
+      Reason = "Zero or invalid return volatility"
+    ))
+  }
+
+  data.frame(Ticker = ticker, Reason = "Analysed")
+})
+
+diagnostic <- do.call(rbind, diagnostic)
+
+# Show stocks that weren't analysed
+excluded_stocks <- diagnostic[
+  diagnostic$Reason != "Analysed",
+]
+
+print(excluded_stocks)
+
+# Count exclusions by reason
+print(table(excluded_stocks$Reason))
+```
+
+```{r industry-summary, include=FALSE}
+# SUMMARISE GBM STATISTICS BY INDUSTRY
+
+industry_summary <- do.call(
+  rbind,
+  lapply(
+    split(
+      industry_stock_results,
+      industry_stock_results$Industry
+    ),
+    function(x) {
+      data.frame(
+        Industry = x$Industry[1],
+        Number_of_Stocks = nrow(x),
+        Mean_Annualised_Volatility = mean(
+          x$Annualised_Volatility,
+          na.rm = TRUE
+        ),
+        Median_Annualised_Volatility = median(
+          x$Annualised_Volatility,
+          na.rm = TRUE
+        ),
+        Mean_Annualised_GBM_Drift = mean(
+          x$Annualised_GBM_Drift,
+          na.rm = TRUE
+        ),
+        Mean_Absolute_Skewness = mean(
+          abs(x$Skewness),
+          na.rm = TRUE
+        ),
+        Mean_Excess_Kurtosis = mean(
+          x$Excess_Kurtosis,
+          na.rm = TRUE
+        )
+      )
+    }
+  )
+)
+
+# Sort by volatility, highest first
+industry_summary <- industry_summary[
+  order(-industry_summary$Mean_Annualised_Volatility),
+]
+
+rownames(industry_summary) <- NULL
+
+# Display formatted table in knitted report
+knitr::kable(
+  industry_summary,
+  digits = 4,
+  col.names = c(
+    "Industry",
+    "Number of Stocks",
+    "Mean Annualised Volatility",
+    "Median Annualised Volatility",
+    "Mean Annualised GBM Drift",
+    "Mean Absolute Skewness",
+    "Mean Excess Kurtosis"
+  ),
+  caption = "Summary of GBM Statistics by Industry"
+)
+```
+
+Now looking to check how the assumptions of the GBM model fit to the different industries using the estimated parameters calculated above (repeated below)
+
+```{r industry-gbm-comparison}
+# how close industries match GBM Assumptions
+
+industry_gbm_comparison <- do.call(
+  rbind,
+  lapply(
+    split(
+      industry_stock_results,
+      industry_stock_results$Industry
+    ),
+    function(x) {
+
+      data.frame(
+        Industry = x$Industry[1],
+
+        Number_of_Stocks = nrow(x),
+
+        Mean_Absolute_Skewness = mean(
+          abs(x$Skewness),
+          na.rm = TRUE
+        ),
+
+        Median_Absolute_Skewness = median(
+          abs(x$Skewness),
+          na.rm = TRUE
+        ),
+
+        Mean_Absolute_Excess_Kurtosis = mean(
+          abs(x$Excess_Kurtosis),
+          na.rm = TRUE
+        ),
+
+        Median_Absolute_Excess_Kurtosis = median(
+          abs(x$Excess_Kurtosis),
+          na.rm = TRUE
+        ))}))
+
+# Rank industries: low values = closer to assumptions
+
+industry_gbm_comparison$Skewness_Rank <- rank(
+  industry_gbm_comparison$Mean_Absolute_Skewness,
+  ties.method = "average",
+  na.last = "keep"
+)
+
+industry_gbm_comparison$Kurtosis_Rank <- rank(
+  industry_gbm_comparison$Mean_Absolute_Excess_Kurtosis,
+  ties.method = "average",
+  na.last = "keep"
+)
+
+# Average of the ranks
+industry_gbm_comparison$Average_Rank <- rowMeans(
+  industry_gbm_comparison[
+    c("Skewness_Rank", "Kurtosis_Rank")
+  ],
+  na.rm = FALSE
+)
+
+# Sort lowest avg rank
+industry_gbm_comparison <- industry_gbm_comparison[
+  order(industry_gbm_comparison$Average_Rank),
+]
+
+rownames(industry_gbm_comparison) <- NULL
+
+# Output
+knitr::kable(
+  industry_gbm_comparison,
+  digits = 3,
+  col.names = c(
+    "Industry",
+    "Number of Stocks",
+    "Mean Absolute Skewness",
+    "Median Absolute Skewness",
+    "Mean Absolute Excess Kurtosis",
+    "Median Absolute Excess Kurtosis",
+    "Skewness Rank",
+    "Kurtosis Rank",
+    "Average Rank"
+  ),
+  caption = paste(
+    "Comparison of Industry Return Distributions",
+    "Against the GBM Normal Log-Return Assumption"
+  )
+)
+```
+
+```{r gbm-industry-simulation, fig.width=14, fig.height=7, out.width="100%"}
+
+#Actual GBM Simulation per Industry
+
+set.seed(123)
+
+n_simulations <- 500
+trading_days <- 252
+
+gbm_fit_results <- list()
+
+for (i in seq_len(nrow(industry_stock_results))) {
+
+  ticker <- industry_stock_results$Ticker[i]
+  industry <- industry_stock_results$Industry[i]
+
+  stock <- data_list[[ticker]]
+
+  if (is.null(stock)) next
+
+  # Identify required columns
+  date_col <- which(tolower(names(stock)) == "date")
+  close_col <- which(tolower(names(stock)) == "close")
+
+  if (length(date_col) != 1 || length(close_col) != 1) next
+
+  dates <- as.Date(stock[[date_col]])
+  prices <- suppressWarnings(
+    as.numeric(as.character(stock[[close_col]]))
+  )
+
+  # Apply selected date range and price validity checks
+  keep <- !is.na(dates) &
+    dates >= start_date &
+    dates <= end_date &
+    is.finite(prices) &
+    prices > 0
+
+  dates <- dates[keep]
+  prices <- prices[keep]
+
+  # Sort and remove duplicate dates
+  ordering <- order(dates)
+  dates <- dates[ordering]
+  prices <- prices[ordering]
+
+  unique_dates <- !duplicated(dates)
+  dates <- dates[unique_dates]
+  prices <- prices[unique_dates]
+
+  if (length(prices) < 30) next
+
+  # Calculate log returns
+  log_returns <- diff(log(prices))
+
+  if (length(log_returns) < 20 ||
+      !is.finite(sd(log_returns)) ||
+      sd(log_returns) == 0) next
+
+  # Estimate annualised GBM parameters
+  sigma_hat <- sd(log_returns) * sqrt(trading_days)
+
+  mu_hat <- mean(log_returns) * trading_days +
+    0.5 * sigma_hat^2
+
+  # Number of intervals between observed prices
+  n_days <- length(prices) - 1
+
+  # Simulate daily log-price increments
+  simulated_increments <- matrix(
+    rnorm(
+      n_days * n_simulations,
+      mean = (mu_hat - 0.5 * sigma_hat^2) / trading_days,
+      sd = sigma_hat / sqrt(trading_days)
+    ),
+    nrow = n_days,
+    ncol = n_simulations
+  )
+
+  # Construct simulated price paths
+  simulated_paths <- rbind(
+    rep(prices[1], n_simulations),
+    prices[1] * exp(
+      apply(simulated_increments, 2, cumsum)
+    )
+  )
+
+  # Pointwise 95% simulation interval and median path
+  lower_95 <- apply(
+    simulated_paths, 1, quantile, probs = 0.025
+  )
+
+  median_path <- apply(
+    simulated_paths, 1, median
+  )
+
+  upper_95 <- apply(
+    simulated_paths, 1, quantile, probs = 0.975
+  )
+
+  # Compare actual prices with simulated distribution
+  coverage_95 <- mean(
+    prices >= lower_95 & prices <= upper_95
+  ) * 100
+
+  median_path_mape <- mean(
+    abs(prices - median_path) / prices
+  ) * 100
+
+  log_price_rmse <- sqrt(
+    mean((log(prices) - log(median_path))^2)
+  )
+
+  # Save stock-level results
+  gbm_fit_results[[length(gbm_fit_results) + 1]] <-
+    data.frame(
+      Ticker = ticker,
+      Industry = industry,
+      Number_of_Prices = length(prices),
+      Median_Path_MAPE = median_path_mape,
+      Log_Price_RMSE = log_price_rmse,
+      Coverage_95_Percent = coverage_95
+    )
+}
+
+# Error Catcher
+# Stop if no stocks could be compared
+if (length(gbm_fit_results) == 0) {
+  stop("No stocks were successfully simulated.")
+}
+
+# Combine results
+gbm_fit_stock_results <- do.call(
+  rbind, gbm_fit_results
+)
+
+rownames(gbm_fit_stock_results) <- NULL
+
+# Industry Summary
+
+gbm_fit_industry_summary <- do.call(
+  rbind,
+  lapply(
+    split(
+      gbm_fit_stock_results,
+      gbm_fit_stock_results$Industry
+    ),
+    function(x) {
+      data.frame(
+        Industry = x$Industry[1],
+        Number_of_Stocks = nrow(x),
+        Median_MAPE = median(
+          x$Median_Path_MAPE, na.rm = TRUE
+        ),
+        Median_Log_Price_RMSE = median(
+          x$Log_Price_RMSE, na.rm = TRUE
+        ),
+        Mean_95_Percent_Coverage = mean(
+          x$Coverage_95_Percent, na.rm = TRUE
+        )
+      )
+    }
+  )
+)
+
+# Sort by median path error, lowest first
+gbm_fit_industry_summary <-
+  gbm_fit_industry_summary[
+    order(gbm_fit_industry_summary$Median_MAPE),
+  ]
+
+rownames(gbm_fit_industry_summary) <- NULL
+
+knitr::kable(
+  gbm_fit_industry_summary,
+  digits = 2,
+  col.names = c(
+    "Industry",
+    "Stocks Analysed",
+    "Median Path MAPE (%)",
+    "Median Log-Price RMSE",
+    "Mean 95% Coverage (%)"
+  ),
+  caption = "GBM Simulation Fit Compared Across Industries"
+)
+
+# Price Path Error by Industry
+
+par(mfrow = c(1, 2), mar = c(10, 5, 4, 2))
+
+# Display both graphs side by side
+par(
+  mfrow = c(1, 2),
+  mar = c(10, 5, 4, 2)
+)
+
+# Graph 1: Price Path Error by Industry
+boxplot(
+  Median_Path_MAPE ~ Industry,
+  data = gbm_fit_stock_results,
+  las = 2,
+  col = "lightblue",
+  ylab = "Median simulated path MAPE (%)",
+  main = "GBM Price-Path Error by Industry",
+  outline = TRUE
+)
+
+# Graph 2: Actual Price Coverage
+coverage_data <- gbm_fit_industry_summary[
+  order(gbm_fit_industry_summary$Mean_95_Percent_Coverage),
+]
+
+barplot(
+  coverage_data$Mean_95_Percent_Coverage,
+  names.arg = coverage_data$Industry,
+  las = 2,
+  col = "darkseagreen3",
+  ylim = c(0, 100),
+  ylab = "Mean percentage of prices within interval",
+  main = "Actual Prices Within GBM 95% Simulation Interval"
+)
+
+# Reference line at 95% coverage
+abline(h = 95, lty = 2, col = "red")
+
+# Reset layout for any subsequent plots
+par(mfrow = c(1, 1))
+
+```
+
+## Further Directions 
+
+1.  How to deal with dividends
+2.  Analysis:
+    1.  Vary number of walks?
+    2.  Vary time period
+    3.  Change parameters based on rolling time periods rather than having one consistent parameter over the entire time
+3.  Jarque - Bera test for if log returns are normally distribution
