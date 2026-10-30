@@ -1630,9 +1630,8 @@ display: none;
 <h1>Introduction</h1>
 <p>This project analyses historical stock price data for UK-listed
 companies to assess the validity of Geometric Brownian Motion to model
-the prices. The analysis begins by importing and cleaning the dataset,
-removing stocks that do not meet the required data quality criteria and
-selecting an appropriate historical time period. Daily logarithmic
+the prices. The analysis begins by importing and cleaning the data set
+and selecting an appropriate historical time period. Daily logarithmic
 returns are then calculated for each stock, and key statistical
 parameters are estimated from the resulting data.</p>
 <p>The analysis initially focuses on an individual stock, examining its
@@ -1696,7 +1695,6 @@ names(data_list)</code></pre>
 ##  [71] &quot;PSON&quot; &quot;REL&quot;  &quot;RIO&quot;  &quot;RKT&quot;  &quot;RMV&quot;  &quot;ROR&quot;  &quot;RR&quot;   &quot;RSW&quot;  &quot;RTO&quot;  &quot;SBRY&quot;
 ##  [81] &quot;SCT&quot;  &quot;SDLF&quot; &quot;SGE&quot;  &quot;SGRO&quot; &quot;SHEL&quot; &quot;SMIN&quot; &quot;SMT&quot;  &quot;SN&quot;   &quot;SPX&quot;  &quot;SSE&quot; 
 ##  [91] &quot;STAN&quot; &quot;STJ&quot;  &quot;SVT&quot;  &quot;TSCO&quot; &quot;ULVR&quot; &quot;UU&quot;   &quot;VOD&quot;  &quot;WEIR&quot; &quot;WTB&quot;  &quot;ZEG&quot;</code></pre>
-<pre class="r"><code>View(data_list[[1]])</code></pre>
 </div>
 <div id="setup-for-individual-stocks" class="section level2">
 <h2>Setup for Individual Stocks</h2>
@@ -2708,8 +2706,8 @@ symmetric and closer to a normal distribution.</p>
 <p><strong>Mean and Median Absolute Excess Kurtosis:</strong> These
 measure the average and median absolute excess kurtosis of stock returns
 within each industry. Under GBM, log returns have zero excess kurtosis.
-Lower values indicate that the return distributions have tail behaviour
-closer to a normal distribution.</p>
+Lower values indicate that the return distributions is closer to a
+normal distribution.</p>
 <p><strong>Average Rank:</strong> This combines the skewness and
 kurtosis ranks to provide an overall comparison of industries based on
 these two aspects of GBM’s return-distribution assumptions. A lower
@@ -3062,6 +3060,40 @@ lower coverage may indicate that the model underestimates uncertainty.
 Higher coverage is not necessarily better, as wider intervals can
 capture more observations without providing more precise
 predictions.</p>
+<div id="conclusion-across-industries" class="section level3">
+<h3>Conclusion across Industries</h3>
+<p>Overall, The results indicate that GBM can provide a reasonable
+approximation of historical price movements, but its effectiveness
+varies considerably between industries. Healthcare and Energy and
+Utilities produced the lowest median path MAPE values of 9.01% and
+9.32%, respectively, whereas Travel, Leisure and Hospitality recorded
+the highest error at 25.62%. This suggests that GBM is more effective at
+reproducing price movements for some sectors than others.</p>
+<p>The analysis of return distributions further highlights limitations
+in the model’s assumptions. Consumer Discretionary and Retail had the
+lowest mean absolute skewness (0.233), but relatively high mean excess
+kurtosis (6.703), indicating that symmetric returns do not necessarily
+follow a normal distribution. Healthcare exhibited the lowest mean
+excess kurtosis (4.960), yet the highest mean absolute skewness (0.374),
+demonstrating that departures from normality vary across industries. The
+generally positive excess kurtosis values suggest heavier tails than
+those expected under a normal distribution, raising concerns about GBM’s
+ability to represent extreme price movements accurately.</p>
+<p>Although mean 95% coverage was high across all industries, ranging
+from 92.43% to 99.47%, this does not necessarily indicate strong
+predictive accuracy, as wider confidence intervals can contain observed
+prices despite substantial differences between simulated and actual
+paths. Taken together, the findings suggest that GBM is a useful
+starting point for modelling underlying asset prices, but its
+assumptions should not be accepted universally. In the context of option
+pricing and real-options valuation, these limitations are important
+because an unsuitable price model may affect valuation reliability,
+particularly where extreme movements or complex price dynamics are
+significant. However, since this project focuses on historical price
+simulations rather than directly comparing option prices, further
+research would be needed to quantify the impact on valuations and assess
+whether alternative models provide better results.</p>
+</div>
 </div>
 </div>
 <div id="further-directions" class="section level1">
@@ -3078,8 +3110,20 @@ low)</li>
 one consistent parameter over the entire time</li>
 </ol></li>
 <li>Jarque - Bera test for if log returns are normally distribution</li>
+<li>Which tests to apply to every single stock</li>
 <li>Maybe change the industries based on FTSE classification / a more
 concrete specification</li>
+<li>Compare the performance of the entire FTSE index over the time
+period</li>
+<li>create conclusion framework for industries - consider beta across
+industries and cyclical exposure</li>
+</ol>
+<p>To discuss</p>
+<ol style="list-style-type: decimal">
+<li>All of above</li>
+<li>what time period to take from the data (maybe one with low
+volatility)</li>
+<li></li>
 </ol>
 </div>
 
